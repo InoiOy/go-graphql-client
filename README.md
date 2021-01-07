@@ -1,8 +1,6 @@
 go-graphql-client
 =======
 
-[![Build Status](https://travis-ci.org/hasura/go-graphql-client.svg?branch=master)](https://travis-ci.org/hasura/go-graphql-client.svg?branch=master) [![GoDoc](https://godoc.org/github.com/hasura/go-graphql-client?status.svg)](https://pkg.go.dev/github.com/hasura/go-graphql-client)
-
 **Preface:** This is a fork of `https://github.com/shurcooL/graphql` with extended features (subscription client, named operation)
 
 The subscription client follows Apollo client specification https://github.com/apollographql/subscriptions-transport-ws/blob/master/PROTOCOL.md, using websocket protocol with https://github.com/nhooyr/websocket, a minimal and idiomatic WebSocket library for Go.
@@ -19,7 +17,7 @@ Installation
 `go-graphql-client` requires Go version 1.13 or later.
 
 ```bash
-go get -u github.com/hasura/go-graphql-client
+go get -u github.com/InoiOy/go-graphql-client
 ```
 
 Usage
