@@ -165,6 +165,74 @@ func TestClient_Query_emptyVariables(t *testing.T) {
 	}
 }
 
+func TestClient_Query_stringPartialDataWithErrorResponse(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/graphql", func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		mustWrite(w, `{
+			"data": {
+				"node1": {
+					"id": "MDEyOklzc3VlQ29tbWVudDE2OTQwNzk0Ng=="
+				},
+				"node2": null
+			},
+			"errors": [
+				{
+					"message": "Could not resolve to a node with the global id of 'NotExist'",
+					"type": "NOT_FOUND",
+					"path": [
+						"node2"
+					],
+					"locations": [
+						{
+							"line": 10,
+							"column": 4
+						}
+					]
+				}
+			]
+		}`)
+	})
+	client := graphql.NewClient("/graphql", &http.Client{Transport: localRoundTripper{handler: mux}})
+
+	type dataStruct struct {
+		Node1 *struct {
+			ID graphql.ID
+		}
+		Node2 *struct {
+			ID graphql.ID
+		}
+	}
+	type errors []struct {
+		Message   string
+		Locations []struct {
+			Line   int
+			Column int
+		}
+	}
+	var responseStruct struct {
+		Data   dataStruct `json:"data,omitempty"`
+		Errors errors     `json:"errors,omitempty"`
+	}
+
+	q := "{node1: node(id: \"MDEyOklzc3VlQ29tbWVudDE2OTQwNzk0Ng==\"){id},node2: node(id: \"NotExist\"){id}}"
+
+	err := client.StringOperation(context.Background(), q, nil, &responseStruct)
+	if err != nil {
+		t.Fatal("got non-nil error:", err)
+	}
+	if got, want := responseStruct.Errors[0].Message, "Could not resolve to a node with the global id of 'NotExist'"; got != want {
+		t.Errorf("got error: %v, want: %v", got, want)
+	}
+
+	if responseStruct.Data.Node1 == nil || responseStruct.Data.Node1.ID != "MDEyOklzc3VlQ29tbWVudDE2OTQwNzk0Ng==" {
+		t.Errorf("got wrong q.Node1: %v", responseStruct.Data.Node1)
+	}
+	if responseStruct.Data.Node2 != nil {
+		t.Errorf("got non-nil q.Node2: %v, want: nil", *responseStruct.Data.Node2)
+	}
+}
+
 // localRoundTripper is an http.RoundTripper that executes HTTP transactions
 // by using handler directly, instead of going over an HTTP connection.
 type localRoundTripper struct {
