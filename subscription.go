@@ -17,37 +17,40 @@ import (
 // Subscription transport follow Apollo's subscriptions-transport-ws protocol specification
 // https://github.com/apollographql/subscriptions-transport-ws/blob/master/PROTOCOL.md
 
-// OperationMessageType
+// OperationMessageType defines operation messages for Apollo's GraphQL WebSocket protocol
 type OperationMessageType string
 
 const (
-	// Client sends this message after plain websocket connection to start the communication with the server
-	GQL_CONNECTION_INIT OperationMessageType = "connection_init"
-	// The server may responses with this message to the GQL_CONNECTION_INIT from client, indicates the server rejected the connection.
-	GQL_CONNECTION_ERROR OperationMessageType = "conn_err"
-	// Client sends this message to execute GraphQL operation
-	GQL_START OperationMessageType = "start"
-	// Client sends this message in order to stop a running GraphQL operation execution (for example: unsubscribe)
-	GQL_STOP OperationMessageType = "stop"
-	// Server sends this message upon a failing operation, before the GraphQL execution, usually due to GraphQL validation errors (resolver errors are part of GQL_DATA message, and will be added as errors array)
-	GQL_ERROR OperationMessageType = "error"
-	// The server sends this message to transfter the GraphQL execution result from the server to the client, this message is a response for GQL_START message.
-	GQL_DATA OperationMessageType = "data"
-	// Server sends this message to indicate that a GraphQL operation is done, and no more data will arrive for the specific operation.
-	GQL_COMPLETE OperationMessageType = "complete"
-	// Server message that should be sent right after each GQL_CONNECTION_ACK processed and then periodically to keep the client connection alive.
+	// GqlConnectionInit Client sends this message after plain websocket connection to start the communication with the server
+	GqlConnectionInit OperationMessageType = "connection_init"
+	// GqlConnectionError The server may responses with this message to the GqlConnectionInit from client, indicates the server rejected the connection.
+	GqlConnectionError OperationMessageType = "conn_err"
+	// GqlStart Client sends this message to execute GraphQL operation
+	GqlStart OperationMessageType = "start"
+	// GqlStop Client sends this message in order to stop a running GraphQL operation execution (for example: unsubscribe)
+	GqlStop OperationMessageType = "stop"
+	// GqlError Server sends this message upon a failing operation, before the GraphQL execution,
+	// usually due to GraphQL validation errors (resolver errors are part of GqlData message, and will be added as errors array)
+	GqlError OperationMessageType = "error"
+	// GqlData The server sends this message to transfer the GraphQL execution result from the server to the client.
+	// This message is a response for GqlStart message.
+	GqlData OperationMessageType = "data"
+	// GqlComplete Server sends this message to indicate that a GraphQL operation is done, and no more data will arrive for the specific operation.
+	GqlComplete OperationMessageType = "complete"
+	// GqlConnectionKeepAlive Server message that should be sent right after each GqlConnectionAck processed and then periodically to keep the client connection alive.
 	// The client starts to consider the keep alive message only upon the first received keep alive message from the server.
-	GQL_CONNECTION_KEEP_ALIVE OperationMessageType = "ka"
-	// The server may responses with this message to the GQL_CONNECTION_INIT from client, indicates the server accepted the connection. May optionally include a payload.
-	GQL_CONNECTION_ACK OperationMessageType = "connection_ack"
-	// Client sends this message to terminate the connection.
-	GQL_CONNECTION_TERMINATE OperationMessageType = "connection_terminate"
-	// Unknown operation type, for logging only
-	GQL_UNKNOWN OperationMessageType = "unknown"
-	// Internal status, for logging only
-	GQL_INTERNAL OperationMessageType = "internal"
+	GqlConnectionKeepAlive OperationMessageType = "ka"
+	// GqlConnectionAck The server may responses with this message to the GqlConnectionInit from client, indicates the server accepted the connection. May optionally include a payload.
+	GqlConnectionAck OperationMessageType = "connection_ack"
+	// GqlConnectionTerminate Client sends this message to terminate the connection.
+	GqlConnectionTerminate OperationMessageType = "connection_terminate"
+	// GqlUnknown Unknown operation type, for logging only
+	GqlUnknown OperationMessageType = "unknown"
+	// GqlInternal Internal status, for logging only
+	GqlInternal OperationMessageType = "internal"
 )
 
+// OperationMessage is the message structure that is sent to server
 type OperationMessage struct {
 	ID      string               `json:"id,omitempty"`
 	Type    OperationMessageType `json:"type"`
@@ -60,7 +63,7 @@ func (om OperationMessage) String() string {
 	return string(bs)
 }
 
-// WebsocketHandler abstracts WebSocket connecton functions
+// WebsocketConn abstracts WebSocket connecton functions
 // ReadJSON and WriteJSON data of a frame from the WebSocket connection.
 // Close the WebSocket connection.
 type WebsocketConn interface {
@@ -103,6 +106,7 @@ type SubscriptionClient struct {
 	disabledLogTypes []OperationMessageType
 }
 
+// NewSubscriptionClient returns new SubscriptionClient
 func NewSubscriptionClient(url string) *SubscriptionClient {
 	return &SubscriptionClient{
 		url:           url,
@@ -125,7 +129,7 @@ func (sc *SubscriptionClient) GetContext() context.Context {
 	return sc.context
 }
 
-// GetContext returns write timeout of websocket client
+// GetTimeout returns write timeout of websocket client
 func (sc *SubscriptionClient) GetTimeout() time.Duration {
 	return sc.timeout
 }
@@ -137,7 +141,7 @@ func (sc *SubscriptionClient) WithWebSocket(fn func(sc *SubscriptionClient) (Web
 	return sc
 }
 
-// WithConnectionParams updates connection params for sending to server through GQL_CONNECTION_INIT event
+// WithConnectionParams updates connection params for sending to server through GqlConnectionInit event
 // It's usually used for authentication handshake
 func (sc *SubscriptionClient) WithConnectionParams(params map[string]interface{}) *SubscriptionClient {
 	sc.connectionParams = params
@@ -174,7 +178,7 @@ func (sc *SubscriptionClient) WithReadLimit(limit int64) *SubscriptionClient {
 	return sc
 }
 
-// OnConnected event is triggered when there is any connection error. This is bottom exception handler level
+// OnError event is triggered when there is any connection error. This is bottom exception handler level
 // If this function is empty, or returns nil, the error is ignored
 // If returns error, the websocket connection will be terminated
 func (sc *SubscriptionClient) OnError(onError func(sc *SubscriptionClient, err error) error) *SubscriptionClient {
@@ -234,7 +238,7 @@ func (sc *SubscriptionClient) init() error {
 			}
 			return err
 		}
-		sc.printLog(err.Error()+". retry in second....", GQL_INTERNAL)
+		sc.printLog(err.Error()+". retry in second....", GqlInternal)
 		time.Sleep(time.Second)
 	}
 }
@@ -264,11 +268,11 @@ func (sc *SubscriptionClient) sendConnectionInit() (err error) {
 
 	// send connection_init event to the server
 	msg := OperationMessage{
-		Type:    GQL_CONNECTION_INIT,
+		Type:    GqlConnectionInit,
 		Payload: bParams,
 	}
 
-	sc.printLog(msg, GQL_CONNECTION_INIT)
+	sc.printLog(msg, GqlConnectionInit)
 	return sc.conn.WriteJSON(msg)
 }
 
@@ -330,11 +334,11 @@ func (sc *SubscriptionClient) startSubscription(id string, sub *subscription) er
 	// send stop message to the server
 	msg := OperationMessage{
 		ID:      id,
-		Type:    GQL_START,
+		Type:    GqlStart,
 		Payload: payload,
 	}
 
-	sc.printLog(msg, GQL_START)
+	sc.printLog(msg, GqlStart)
 	if err := sc.conn.WriteJSON(msg); err != nil {
 		return err
 	}
@@ -354,7 +358,7 @@ func (sc *SubscriptionClient) wrapHandler(fn handlerFunc) func(data *json.RawMes
 // Run start websocket client and subscriptions. If this function is run with goroutine, it can be stopped after closed
 func (sc *SubscriptionClient) Run() error {
 	if err := sc.init(); err != nil {
-		return fmt.Errorf("retry timeout. exiting...")
+		return fmt.Errorf("retry timeout. exiting")
 	}
 
 	// lazily start subscriptions
@@ -390,7 +394,7 @@ func (sc *SubscriptionClient) Run() error {
 					return nil
 				}
 				if closeStatus != -1 {
-					sc.printLog(fmt.Sprintf("%s. Retry connecting...", err), GQL_INTERNAL)
+					sc.printLog(fmt.Sprintf("%s. Retry connecting...", err), GqlInternal)
 					return sc.Reset()
 				}
 
@@ -403,11 +407,11 @@ func (sc *SubscriptionClient) Run() error {
 			}
 
 			switch message.Type {
-			case GQL_ERROR:
-				sc.printLog(message, GQL_ERROR)
+			case GqlError:
+				sc.printLog(message, GqlError)
 				fallthrough
-			case GQL_DATA:
-				sc.printLog(message, GQL_DATA)
+			case GqlData:
+				sc.printLog(message, GqlData)
 				id, err := uuid.Parse(message.ID)
 				if err != nil {
 					continue
@@ -433,20 +437,20 @@ func (sc *SubscriptionClient) Run() error {
 				}
 
 				go sub.handler(out.Data, nil)
-			case GQL_CONNECTION_ERROR:
-				sc.printLog(message, GQL_CONNECTION_ERROR)
-			case GQL_COMPLETE:
-				sc.printLog(message, GQL_COMPLETE)
+			case GqlConnectionError:
+				sc.printLog(message, GqlConnectionError)
+			case GqlComplete:
+				sc.printLog(message, GqlComplete)
 				sc.Unsubscribe(message.ID)
-			case GQL_CONNECTION_KEEP_ALIVE:
-				sc.printLog(message, GQL_CONNECTION_KEEP_ALIVE)
-			case GQL_CONNECTION_ACK:
-				sc.printLog(message, GQL_CONNECTION_ACK)
+			case GqlConnectionKeepAlive:
+				sc.printLog(message, GqlConnectionKeepAlive)
+			case GqlConnectionAck:
+				sc.printLog(message, GqlConnectionAck)
 				if sc.onConnected != nil {
 					sc.onConnected()
 				}
 			default:
-				sc.printLog(message, GQL_UNKNOWN)
+				sc.printLog(message, GqlUnknown)
 			}
 		}
 	}
@@ -480,10 +484,10 @@ func (sc *SubscriptionClient) stopSubscription(id string) error {
 		// send stop message to the server
 		msg := OperationMessage{
 			ID:   id,
-			Type: GQL_STOP,
+			Type: GqlStop,
 		}
 
-		sc.printLog(msg, GQL_STOP)
+		sc.printLog(msg, GqlStop)
 		if err := sc.conn.WriteJSON(msg); err != nil {
 			return err
 		}
@@ -497,10 +501,10 @@ func (sc *SubscriptionClient) terminate() error {
 	if sc.conn != nil {
 		// send terminate message to the server
 		msg := OperationMessage{
-			Type: GQL_CONNECTION_TERMINATE,
+			Type: GqlConnectionTerminate,
 		}
 
-		sc.printLog(msg, GQL_CONNECTION_TERMINATE)
+		sc.printLog(msg, GqlConnectionTerminate)
 		return sc.conn.WriteJSON(msg)
 	}
 
