@@ -280,18 +280,24 @@ func (sc *SubscriptionClient) sendConnectionInit() (err error) {
 // The handler callback function will receive raw message data or error. If the call return error, onError event will be triggered
 // The function returns subscription ID and error. You can use subscription ID to unsubscribe the subscription
 func (sc *SubscriptionClient) Subscribe(v interface{}, variables map[string]interface{}, handler func(message *json.RawMessage, err error) error) (string, error) {
-	return sc.do(v, variables, handler, "")
+	query := constructSubscription(v, variables, "")
+	return sc.createSubscription(query, variables, handler)
 }
 
 // NamedSubscribe sends start message to server and open a channel to receive data, with operation name
 func (sc *SubscriptionClient) NamedSubscribe(name string, v interface{}, variables map[string]interface{}, handler func(message *json.RawMessage, err error) error) (string, error) {
-	return sc.do(v, variables, handler, name)
+	query := constructSubscription(v, variables, name)
+	return sc.createSubscription(query, variables, handler)
 }
 
-func (sc *SubscriptionClient) do(v interface{}, variables map[string]interface{}, handler func(message *json.RawMessage, err error) error, name string) (string, error) {
-	id := uuid.New().String()
-	query := constructSubscription(v, variables, name)
+// StringSubscribe sends start message to server and open a channel to receive data.
+// Takes query parameter as string.
+func (sc *SubscriptionClient) StringSubscribe(query string, variables map[string]interface{}, handler func(message *json.RawMessage, err error) error) (string, error) {
+	return sc.createSubscription(query, variables, handler)
+}
 
+func (sc *SubscriptionClient) createSubscription(query string, variables map[string]interface{}, handler func(message *json.RawMessage, err error) error) (string, error) {
+	id := uuid.New().String()
 	sub := subscription{
 		query:     query,
 		variables: variables,
@@ -409,15 +415,16 @@ func (sc *SubscriptionClient) Run() error {
 			switch message.Type {
 			case GqlError:
 				sc.printLog(message, GqlError)
-				fallthrough
-			case GqlData:
-				sc.printLog(message, GqlData)
-				id, err := uuid.Parse(message.ID)
-				if err != nil {
+				sub := sc.findSubscription(message.ID)
+				if sub == nil {
 					continue
 				}
-				sub, ok := sc.subscriptions[id.String()]
-				if !ok {
+				go sub.handler(nil, fmt.Errorf(string(message.Payload)))
+			case GqlData:
+				sc.printLog(message, GqlData)
+
+				sub := sc.findSubscription(message.ID)
+				if sub == nil {
 					continue
 				}
 				var out struct {
@@ -426,7 +433,7 @@ func (sc *SubscriptionClient) Run() error {
 					//Extensions interface{} // Unused.
 				}
 
-				err = json.Unmarshal(message.Payload, &out)
+				err := json.Unmarshal(message.Payload, &out)
 				if err != nil {
 					go sub.handler(nil, err)
 					continue
@@ -494,6 +501,17 @@ func (sc *SubscriptionClient) stopSubscription(id string) error {
 
 	}
 
+	return nil
+}
+
+func (sc *SubscriptionClient) findSubscription(ID string) *subscription {
+	id, err := uuid.Parse(ID)
+	if err != nil {
+		return nil
+	}
+	if subscription, ok := sc.subscriptions[id.String()]; ok {
+		return subscription
+	}
 	return nil
 }
 
