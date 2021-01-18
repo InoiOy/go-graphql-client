@@ -82,6 +82,12 @@ func (c *Client) NamedMutateRaw(ctx context.Context, name string, m interface{},
 	return c.doRaw(ctx, mutationOperation, m, variables, name)
 }
 
+// StringOperation takes GraphQL query/mutation as string.
+// Decodes the GraphQL server response to given interface.
+func (c *Client) StringOperation(ctx context.Context, q string, variables map[string]interface{}, responseData interface{}) error {
+	return c.doString(ctx, q, variables, responseData)
+}
+
 // do executes a single GraphQL operation.
 // return raw message and error
 func (c *Client) doRaw(ctx context.Context, op operationType, v interface{}, variables map[string]interface{}, name string) (*json.RawMessage, error) {
@@ -130,6 +136,10 @@ func (c *Client) do(ctx context.Context, op operationType, v interface{}, variab
 	return nil
 }
 
+func (c *Client) doString(ctx context.Context, query string, variables map[string]interface{}, response interface{}) error {
+	return c.createRequest(ctx, query, variables, response)
+}
+
 func (c *Client) createRequest(ctx context.Context, query string, variables map[string]interface{}, response interface{}) error {
 	in := struct {
 		Query     string                 `json:"query"`
@@ -148,7 +158,10 @@ func (c *Client) createRequest(ctx context.Context, query string, variables map[
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	// If 'response' is responseBody, just read body and return it in part of error.
+	// This is because the response may not be decodeable to the struct.
+	_, ok := response.(*responseBody)
+	if ok && resp.StatusCode != http.StatusOK {
 		body, _ := ioutil.ReadAll(resp.Body)
 		return fmt.Errorf("non-200 OK status code: %v body: %q", resp.Status, body)
 	}
