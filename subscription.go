@@ -102,6 +102,8 @@ type SubscriptionClient struct {
 	retryTimeout     time.Duration
 	onConnected      func()
 	onDisconnected   func()
+	onRestart        func(subscriptionID string)
+	onCompleted      func(subscriptionID string)
 	onError          func(sc *SubscriptionClient, err error) error
 	errorChan        chan error
 	disabledLogTypes []OperationMessageType
@@ -196,6 +198,18 @@ func (sc *SubscriptionClient) OnConnected(fn func()) *SubscriptionClient {
 // OnDisconnected event is triggered when the websocket server was stil down after retry timeout
 func (sc *SubscriptionClient) OnDisconnected(fn func()) *SubscriptionClient {
 	sc.onDisconnected = fn
+	return sc
+}
+
+// OnRestart event is triggered when a subscription is restarted after disconnect
+func (sc *SubscriptionClient) OnRestart(fn func(subscriptionID string)) *SubscriptionClient {
+	sc.onRestart = fn
+	return sc
+}
+
+// OnCompleted event is triggered when the websocket server sends GqlComplete message for a subscription
+func (sc *SubscriptionClient) OnCompleted(fn func(subscriptionID string)) *SubscriptionClient {
+	sc.onCompleted = fn
 	return sc
 }
 
@@ -350,6 +364,9 @@ func (sc *SubscriptionClient) startSubscription(id string, sub *subscription) er
 		return err
 	}
 
+	if sub.restarting && sc.onRestart != nil {
+		sc.onRestart(id)
+	}
 	sub.restarting = false
 	sub.started = true
 	return nil
@@ -421,6 +438,9 @@ func (sc *SubscriptionClient) Run() error {
 				sc.runSubHandler(message)
 			case GqlComplete:
 				sc.Unsubscribe(message.ID)
+				if sc.onCompleted != nil {
+					sc.onCompleted(message.ID)
+				}
 			case GqlConnectionAck:
 				if sc.onConnected != nil {
 					sc.onConnected()
