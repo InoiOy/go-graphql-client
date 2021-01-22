@@ -76,7 +76,7 @@ type WebsocketConn interface {
 	SetReadLimit(limit int64)
 }
 
-type handlerFunc func(data *json.RawMessage, err error) error
+type handlerFunc func(message OperationMessage) error
 type subscription struct {
 	query      string
 	variables  map[string]interface{}
@@ -280,24 +280,24 @@ func (sc *SubscriptionClient) sendConnectionInit() (err error) {
 // Subscribe sends start message to server and open a channel to receive data.
 // The handler callback function will receive raw message data or error. If the call return error, onError event will be triggered
 // The function returns subscription ID and error. You can use subscription ID to unsubscribe the subscription
-func (sc *SubscriptionClient) Subscribe(v interface{}, variables map[string]interface{}, handler func(message *json.RawMessage, err error) error) (string, error) {
+func (sc *SubscriptionClient) Subscribe(v interface{}, variables map[string]interface{}, handler func(message OperationMessage) error) (string, error) {
 	query := constructSubscription(v, variables, "")
 	return sc.createSubscription(query, variables, handler)
 }
 
 // NamedSubscribe sends start message to server and open a channel to receive data, with operation name
-func (sc *SubscriptionClient) NamedSubscribe(name string, v interface{}, variables map[string]interface{}, handler func(message *json.RawMessage, err error) error) (string, error) {
+func (sc *SubscriptionClient) NamedSubscribe(name string, v interface{}, variables map[string]interface{}, handler func(message OperationMessage) error) (string, error) {
 	query := constructSubscription(v, variables, name)
 	return sc.createSubscription(query, variables, handler)
 }
 
 // StringSubscribe sends start message to server and open a channel to receive data.
 // Takes query parameter as string.
-func (sc *SubscriptionClient) StringSubscribe(query string, variables map[string]interface{}, handler func(message *json.RawMessage, err error) error) (string, error) {
+func (sc *SubscriptionClient) StringSubscribe(query string, variables map[string]interface{}, handler func(message OperationMessage) error) (string, error) {
 	return sc.createSubscription(query, variables, handler)
 }
 
-func (sc *SubscriptionClient) createSubscription(query string, variables map[string]interface{}, handler func(message *json.RawMessage, err error) error) (string, error) {
+func (sc *SubscriptionClient) createSubscription(query string, variables map[string]interface{}, handler func(message OperationMessage) error) (string, error) {
 	id := uuid.New().String()
 	sub := subscription{
 		query:     query,
@@ -355,9 +355,9 @@ func (sc *SubscriptionClient) startSubscription(id string, sub *subscription) er
 	return nil
 }
 
-func (sc *SubscriptionClient) wrapHandler(fn handlerFunc) func(data *json.RawMessage, err error) {
-	return func(data *json.RawMessage, err error) {
-		if errValue := fn(data, err); errValue != nil {
+func (sc *SubscriptionClient) wrapHandler(fn handlerFunc) func(message OperationMessage) {
+	return func(message OperationMessage) {
+		if errValue := fn(message); errValue != nil {
 			sc.errorChan <- errValue
 		}
 	}
@@ -416,50 +416,15 @@ func (sc *SubscriptionClient) Run() error {
 
 			switch message.Type {
 			case GqlError:
-				sc.printLog(message, GqlError)
-				sub := sc.findSubscription(message.ID)
-				if sub == nil {
-					continue
-				}
-				go sub.handler(nil, fmt.Errorf(string(message.Payload)))
+				fallthrough
 			case GqlData:
-				sc.printLog(message, GqlData)
-
-				sub := sc.findSubscription(message.ID)
-				if sub == nil {
-					continue
-				}
-				var out struct {
-					Data   *json.RawMessage
-					Errors errors
-					//Extensions interface{} // Unused.
-				}
-
-				err := json.Unmarshal(message.Payload, &out)
-				if err != nil {
-					go sub.handler(nil, err)
-					continue
-				}
-				if len(out.Errors) > 0 {
-					go sub.handler(nil, out.Errors)
-					continue
-				}
-
-				go sub.handler(out.Data, nil)
-			case GqlConnectionError:
-				sc.printLog(message, GqlConnectionError)
+				sc.runSubHandler(message)
 			case GqlComplete:
-				sc.printLog(message, GqlComplete)
 				sc.Unsubscribe(message.ID)
-			case GqlConnectionKeepAlive:
-				sc.printLog(message, GqlConnectionKeepAlive)
 			case GqlConnectionAck:
-				sc.printLog(message, GqlConnectionAck)
 				if sc.onConnected != nil {
 					sc.onConnected()
 				}
-			default:
-				sc.printLog(message, GqlUnknown)
 			}
 		}
 	}
@@ -470,6 +435,14 @@ func (sc *SubscriptionClient) Run() error {
 	}
 
 	return sc.Reset()
+}
+
+func (sc *SubscriptionClient) runSubHandler(message OperationMessage) {
+	sub := sc.findSubscription(message.ID)
+	if sub == nil {
+		return
+	}
+	go sub.handler(message)
 }
 
 // Unsubscribe sends stop message to server and close subscription channel
