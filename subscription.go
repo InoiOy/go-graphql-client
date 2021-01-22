@@ -78,10 +78,11 @@ type WebsocketConn interface {
 
 type handlerFunc func(data *json.RawMessage, err error) error
 type subscription struct {
-	query     string
-	variables map[string]interface{}
-	handler   func(data *json.RawMessage, err error)
-	started   Boolean
+	query      string
+	variables  map[string]interface{}
+	handler    func(message OperationMessage)
+	started    Boolean
+	restarting Boolean
 }
 
 // SubscriptionClient is a GraphQL subscription client.
@@ -304,8 +305,8 @@ func (sc *SubscriptionClient) createSubscription(query string, variables map[str
 		handler:   sc.wrapHandler(handler),
 	}
 
-	// if the websocket client is running, start subscription immediately
-	if sc.isRunning {
+	// if the websocket client is running and the connection is valid, start subscription immediately
+	if sc.isRunning && sc.conn != nil {
 		if err := sc.startSubscription(id, &sub); err != nil {
 			return "", err
 		}
@@ -349,6 +350,7 @@ func (sc *SubscriptionClient) startSubscription(id string, sub *subscription) er
 		return err
 	}
 
+	sub.restarting = false
 	sub.started = true
 	return nil
 }
@@ -538,6 +540,7 @@ func (sc *SubscriptionClient) Reset() error {
 	for id, sub := range sc.subscriptions {
 		_ = sc.stopSubscription(id)
 		sub.started = false
+		sub.restarting = true
 	}
 
 	if sc.conn != nil {
